@@ -129,6 +129,10 @@ class DataProcessor(object):
                 # passage = re.sub(r'\?+|？+', '。', passage)
                 # passage = re.sub(r'。+', '。', passage)
                 label = int(line[0][-1])
+                if label == 1:
+                    continue
+                if label == 2:
+                    label -= 1
                 # print(f'passage = {passage}')
                 example = InputExample(id=index, passage=passage, label=label)
                 examples.append(example)
@@ -161,6 +165,10 @@ class DataProcessor(object):
                 # passage = re.sub(r'。+', '。', passage)
                 id = int(line[0][:-3])
                 label = int(line[0][-1])
+                if labels == 1:
+                    continue
+                if label == 2:
+                    label -= 1
                 self.eval_dict[id] = (passage, label)
                 example = InputExample(id=id, passage=passage, label=id)
                 examples.append(example)
@@ -372,7 +380,7 @@ def main():
     #         os.makedirs(args.output_dir, exist_ok=True)
 
     tokenizer = tokenization.FullTokenizer(vocab_file=vocab_path, do_lower_case=args.do_lower_case)
-    model = BertForSequenceClassification.from_pretrained(args.bert_model, num_labels=3)
+    model = BertForSequenceClassification.from_pretrained(args.bert_model, num_labels=2)
     for k, v in model.state_dict().items():
         print(f'k = {k}, v.grad = {v.grad}')
     model.to(device)
@@ -455,7 +463,7 @@ def main():
     eval_loader = ParaDataloader(eval_features)
     eval_loader = DataLoader(eval_loader, shuffle=False, batch_size=args.eval_batch_size)
 
-    if 0:
+    if 1:
         # 数据读取
         train_examples = data_processor.get_examples(args.train_file, data_type='train')
 
@@ -488,6 +496,8 @@ def main():
                              warmup=args.warmup_proportion,
                              t_total=num_train_steps)
         tr_loss = None
+        total_step = 0
+
         for epoch in range(args.epoches):
             model.train()
             min_eval_loss = 10000
@@ -496,17 +506,18 @@ def main():
 
                 loss, _ = model(input_ids, segment_ids, input_mask, label_ids)
                 loss = loss.mean()
-                print(f'loss = {loss}')
+                print(f'step: {step} loss = {loss}')
                 if args.gradient_accumulation_steps > 1:
                     loss = loss / args.gradient_accumulation_steps
                 loss.backward()
                 tr_loss = loss * args.gradient_accumulation_steps if step == 0 else tr_loss + loss * args.gradient_accumulation_steps
                 optimizer.step()
                 optimizer.zero_grad()
-                if step % 2000 == 1:
+                total_step += 1
+                if total_step % 500 == 0 and total_step > 10:
                     eval_loss = eval_meric(model, eval_loader)
                     if eval_loss < min_eval_loss:
-                        save_checkpoint(model, step, args.output_dir)
+                        save_checkpoint(model, total_step, args.output_dir)
 
     if args.do_predict:
         if args.load_checkpoint:
@@ -536,11 +547,11 @@ def accuracy(labels, logits):
 
     labels_zero_nums = labels.count(0)
     labels_one_nums = labels.count(1)
-    labels_two_nums = labels.count(2)
+    # labels_two_nums = labels.count(2)
 
     logits_zero_nums = logits.count(0)
     logits_one_nums = logits.count(1)
-    logits_two_nums = logits.count(2)
+    # logits_two_nums = logits.count(2)
 
     acc_counter = defaultdict(int)
 
@@ -550,8 +561,8 @@ def accuracy(labels, logits):
                 acc_counter['0'] += 1
             elif label == 1:
                 acc_counter['1'] += 1
-            elif label == 2:
-                acc_counter['2'] += 1
+            # elif label == 2:
+            #     acc_counter['2'] += 1
 
     zero_recall = acc_counter["0"] / labels_zero_nums if labels_zero_nums != 0 else 0
     zero_precision = acc_counter["0"] / logits_zero_nums if logits_zero_nums != 0 else 0
@@ -570,15 +581,15 @@ def accuracy(labels, logits):
         f'one ---- recall {round(one_recall, 4)},  precision {round(one_precision, 4)}, f1 {round(one_f1, 4)}'
     )
 
-    two_recall = acc_counter["2"] / labels_two_nums if labels_two_nums != 0 else 0
-    two_precision = acc_counter["2"] / logits_two_nums if logits_two_nums != 0 else 0
-    two_f1 = 2 * two_recall * two_precision / (two_recall + two_precision) if (
-        two_recall + two_precision) != 0 else 0
-    logger.info(
-        f'two ---- recall {round(two_recall, 4)},  precision {round(two_precision, 4)}, f1 {round(two_f1, 4)}'
-    )
+    # two_recall = acc_counter["2"] / labels_two_nums if labels_two_nums != 0 else 0
+    # two_precision = acc_counter["2"] / logits_two_nums if logits_two_nums != 0 else 0
+    # two_f1 = 2 * two_recall * two_precision / (two_recall + two_precision) if (
+    #     two_recall + two_precision) != 0 else 0
+    # logger.info(
+    #     f'two ---- recall {round(two_recall, 4)},  precision {round(two_precision, 4)}, f1 {round(two_f1, 4)}'
+    # )
 
-    logger.info(f'average f1 {round((zero_f1 + one_f1 + two_f1) / 3, 4)}')
+    logger.info(f'average f1 {round((zero_f1 + one_f1) / 2, 4)}')
 
 
 if __name__ == "__main__":
