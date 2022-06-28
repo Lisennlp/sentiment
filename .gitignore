@@ -112,3 +112,4 @@ venv.bak/
 #/data
 .vscode/*
 .DS_S*
+.DS_Store
